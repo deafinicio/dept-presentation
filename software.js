@@ -51,7 +51,7 @@ export function softwareDesk(){
      const [a,b,,d]=pts;const tw=tex.width,th=tex.height;
      ctx.setTransform((b[0]-a[0])/tw,(b[1]-a[1])/tw,(d[0]-a[0])/th,(d[1]-a[1])/th,a[0],a[1]);
      ctx.drawImage(tex,0,0);
-     if(dim<.99){ctx.fillStyle='rgba(31,24,32,'+(1-dim)*.80+')';ctx.fillRect(0,0,tw,th);}
+     if(dim<.99){ctx.fillStyle='rgba(20,29,47,'+(1-dim)*.80+')';ctx.fillRect(0,0,tw,th);}
      ctx.setTransform(1,0,0,1,0,0);
     }else{
      ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);

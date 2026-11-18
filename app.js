@@ -19,7 +19,7 @@ const chapters = [
  ['Співпраця','Наступний крок','Запис у розкладі','Почнімо з однієї зустрічі. Повідомте, для кого вона потрібна, і разом погодимо тему, формат, час та умови проведення.','Картка зустрічі','Проєкт домовленості'],
 ];
 const state = {step:0,audience:null,online:false,answered:false,book:false,overview:false};
-const visual = createDesk($('visual'));
+let visual;
 const demo = () => audiences[state.audience ?? 2];
 const set = (values, focus) => {Object.assign(state,values); update(focus);};
 const go = (step, focus=false) => {if(step<0||step>=chapters.length||step===state.step)return;set({step,overview:false},focus);};
@@ -94,3 +94,12 @@ document.addEventListener('keydown',e=>{
  if(e.key==='Home'||e.key==='End'){e.preventDefault();go(e.key==='Home'?0:6,true);}
 });
 update();
+
+async function startDesk(){
+ // Wait for both character sets before baking text into Canvas textures.
+ try { await document.fonts?.load('700 22px Montserrat','Виховна година ABC'); }
+ catch { /* The scene also works with the system font. */ }
+ visual = createDesk($('visual'));
+ visual?.update({...state,label:state.audience===null?'':demo().short});
+}
+startDesk();
