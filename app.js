@@ -1,3 +1,5 @@
+import { createGallery } from './gallery.js';
+
 const $ = id => document.getElementById(id);
 const config = JSON.parse($('media-config').textContent);
 const media = {
@@ -7,17 +9,7 @@ const media = {
  cover: ['Обкладинка розмальовки','Обкладинка видання «Вартові дивосвіту»'],
  page: ['Сторінка розмальовки','Сторінка видання «Вартові дивосвіту»'],
 };
-const imageIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.2" cy="9" r="1.5"/><path d="m3 17 5-4 3 2 4-4 6 5"/></svg>';
 const escape = text => String(text).replace(/[&<>"']/g, char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);
-function photo(key, light=false) {
- const [caption,alt] = media[key], src=config.images[key];
- return `<figure class="media-frame${light?' media-light':''}${src?' has-photo':''}" data-photo="${key}">
-  <div class="media-image">${src?`<img src="${escape(src)}" alt="${escape(alt)}" decoding="async">`:''}</div>
-  <div class="media-empty"${src?' hidden':''}><div class="empty-content"><span class="empty-icon">${imageIcon}</span><strong>${caption}</strong></div></div>
-  ${src?'<button type="button" class="button media-open" data-open-photo>Збільшити</button>':''}
-  <figcaption>${src?caption:'Місце для фото · '+caption.toLowerCase()}</figcaption>
- </figure>`;
-}
 const prefix = (label, title) => `<p class="eyebrow">${label}</p><h1 id="slide-title" tabindex="-1">${title}</h1>`;
 const cards = items => `<div class="cards">${items.map(([title,desc])=>`<section class="card"><h2>${title}</h2><p>${desc}</p></section>`).join('')}</div>`;
 const sequence = steps => `<ol class="sequence">${steps.map(([title,desc],i)=>`<li><span class="count" aria-hidden="true">0${i+1}</span><div><strong>${title}</strong><p>${desc}</p></div></li>`).join('')}</ol>`;
@@ -49,7 +41,7 @@ const slides = [
   ${prefix('Зустріч для працівників дитсадків','Як ми говоримо з дошкільнятами про <span>мінну небезпеку</span>')}
   <p class="lead">Як проходить ігрова сесія та що можемо організувати разом із вашим закладом.</p>
   <button type="button" class="button primary slide-cta" data-go="1">Познайомитися з відділом →</button>
- </div>${photo('overview')}` },
+ </div>` },
  { id:'viddil', short:'Про відділ', layout:'', draw:()=>`<div class="section-wrap">
   <div class="dept-head">
    ${prefix('Хто ми','Відділ протимінної діяльності')}
@@ -70,16 +62,15 @@ const slides = [
    ['Граємо й обговорюємо','Діти взаємодіють з ілюстрацією або іншим навчальним матеріалом.'],
    ['Разом повторюємо правило','Фахівець підбиває підсумок, а вихователь може повернутися до теми з групою.'],
   ])}
- </div>${photo('play')}` },
+ </div>` },
  { id:'hra', short:'Гра наживо', layout:'slide-split', draw:()=>`<div class="slide-copy">
   ${prefix('Демонстрація для освітян','Одна гра наживо')}
   <p class="lead">Приклад короткої розмови з дошкільнятами за ілюстрацією.</p>
   ${gameControls()}
- </div>${photo('prop',true)}` },
+ </div>` },
  { id:'materialy', short:'Матеріали', layout:'', draw:()=>`<div class="section-wrap">
   ${prefix('Інструменти для роботи з дітьми','Матеріали для заняття й повторення')}
   <p class="lead">Розмальовку <strong>«Вартові дивосвіту»</strong> можна використати як привід повернутися до теми після сесії. Запропонуйте дітям розглянути ілюстрацію й згадати, про що говорили на занятті.</p>
-  <div class="media-set">${photo('cover',true)}${photo('page',true)}</div>
  </div>` },
  { id:'propozytsii', short:'Пропозиції', layout:'', draw:()=>`<div class="section-wrap">
   ${prefix('Можливості співпраці','Що можемо організувати для дитсадка?')}
@@ -109,23 +100,25 @@ const slides = [
 
 const stage = $('stage'), timeline=$('timeline'), dialog=$('photo-dialog');
 const pathIndex = () => slides.findIndex(slide=>location.hash.slice(1)===slide.id);
-let current=Math.max(0,pathIndex()), opener;
+let current=Math.max(0,pathIndex()), opener, gallery, overview=false;
 const two = n => String(n).padStart(2,'0');
 timeline.innerHTML=slides.map(({short},i)=>`<button class="nav-item" type="button" data-go="${i}"><span aria-hidden="true">${two(i+1)}</span>${short}</button>`).join('');
+const mediaForSlide=[['overview'],[],['play'],['prop'],['cover','page'],[],[]];
+function syncGallery(instant=false) {
+ const view=$('overview');
+ view.setAttribute('aria-pressed',String(overview));
+ view.textContent=overview?'Повернутися до розділу':'Загальний план';
+ $('space-label').textContent=overview?'Загальний план':slides[current].short;
+ $('space-fallback-title').textContent=slides[current].short;
+ $('gallery-photos').innerHTML=mediaForSlide[current]
+   .filter(key=>config.images[key])
+   .map(key=>`<button type="button" class="space-button" data-open-photo="${key}">${media[key][0]} ↗</button>`)
+   .join('');
+ gallery?.move(current,overview,gameIndex,instant);
+}
 function render(focus=false, updateAddress=false) {
  const slide = slides[current];
  stage.innerHTML=`<article class="slide ${slide.layout}" aria-labelledby="slide-title">${slide.draw()}</article>`;
- for(const img of stage.querySelectorAll('.media-image img')){
-  const fallback=()=>{
-   const frame=img.closest('.media-frame');
-   frame.classList.remove('has-photo');
-   frame.querySelector('.media-empty').hidden=false;
-   frame.querySelector('[data-open-photo]').hidden=true;
-   img.remove();
-  };
-  img.addEventListener('error',fallback,{once:true});
-  if(img.complete&&!img.naturalWidth)fallback();
- }
  for(const [i,button] of [...timeline.children].entries()){
   if(i===current)button.setAttribute('aria-current','step');
   else button.removeAttribute('aria-current');
@@ -137,19 +130,23 @@ function render(focus=false, updateAddress=false) {
   try { history.replaceState(null,'','#'+slide.id); }
   catch { /* Navigation remains available when opened as a local file. */ }
  }
+ syncGallery();
  if(focus){ $('slide-title').focus({preventScroll:true});window.scrollTo(0,0); }
 }
 function navigate(index,{updateAddress=true,focus=true}={}) {
- if(index<0||index>=slides.length||index===current)return;
+ if(index<0||index>=slides.length)return;
+ if(index===current){if(overview){overview=false;syncGallery();}return;}
+ overview=false;
  current=index;
  gameIndex=0;
  render(focus,updateAddress);
 }
-function pickGame(index,button){
+function pickGame(index){
  if(!game[index])return;
  gameIndex=index;
- for(const b of stage.querySelectorAll('[data-game]'))b.setAttribute('aria-pressed',String(b===button));
+ for(const b of stage.querySelectorAll('[data-game]'))b.setAttribute('aria-pressed',String(Number(b.dataset.game)===gameIndex));
  $('game-prompt').innerHTML=gamePrompt();
+ gallery?.move(current,overview,gameIndex);
 }
 const draft=`Добрий день! Хотіли б погодити зустріч з інформування про мінну небезпеку.
 
@@ -168,10 +165,10 @@ document.addEventListener('click', e=>{
  const go=e.target.closest('[data-go]');
  if(go){navigate(Number(go.dataset.go));return;}
  const choice=e.target.closest('[data-game]');
- if(choice){pickGame(Number(choice.dataset.game),choice);return;}
+ if(choice){pickGame(Number(choice.dataset.game));return;}
  const trigger=e.target.closest('[data-open-photo]');
  if(trigger){
-  const key=trigger.closest('[data-photo]').dataset.photo;
+  const key=trigger.dataset.openPhoto;
   const [caption,alt]=media[key];
   $('photo-caption').textContent=caption;
   const image=$('photo-enlarged');image.alt=alt;image.src=config.images[key];
@@ -181,6 +178,7 @@ document.addEventListener('click', e=>{
  if(e.target.closest('#copy-request'))copyRequest();
 });
 $('photo-close').onclick=()=>dialog.close();
+$('overview').onclick=()=>{overview=!overview;syncGallery();};
 dialog.addEventListener('close',()=>opener?.focus());
 $('identity').onclick=e=>{e.preventDefault();navigate(0);};
 $('prev').onclick=()=>navigate(current-1);
@@ -206,3 +204,15 @@ document.addEventListener('keydown', e=>{
 });
 window.addEventListener('hashchange',()=>navigate(Math.max(0,pathIndex()),{updateAddress:false}));
 render();
+
+async function startGallery() {
+ try { await document.fonts?.load('720 28px Montserrat','Ігрова сесія № ABC'); }
+ catch { /* A system font is available for the gallery. */ }
+ gallery=createGallery($('space'),config.images,(index,step)=>{
+  navigate(index,{focus:false});
+  if(index===3&&Number.isInteger(step))pickGame(step);
+ });
+ if(gallery)syncGallery(current!==0);
+ else $('overview').hidden=true;
+}
+startGallery();

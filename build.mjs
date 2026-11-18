@@ -2,9 +2,10 @@ import { build } from 'esbuild';
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 
 const fontDir = new URL('./node_modules/@fontsource-variable/montserrat/', import.meta.url);
-const [fontCSS, fontLicense, template, output] = await Promise.all([
+const [fontCSS, fontLicense, threeLicense, template, output] = await Promise.all([
   readFile(new URL('index.css', fontDir), 'utf8'),
   readFile(new URL('LICENSE', fontDir), 'utf8'),
+  readFile('THREE-LICENSE.txt', 'utf8'),
   readFile('index.template.html', 'utf8'),
   build({entryPoints:['app.js'],bundle:true,format:'iife',minify:true,write:false}),
 ]);
@@ -39,7 +40,7 @@ if(contact.url && !/^https?:\/\//i.test(contact.url))throw new Error('Use an HTT
 const config=JSON.stringify({images,contact}).replace(/</g,'\\u003c');
 const script = output.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
 const html = template
-  .replace('/* EMBEDDED_FONTS */', () => '/*\n' + fontLicense + '\n*/\n' + faces.join('\n'))
+  .replace('/* EMBEDDED_FONTS */', () => '/*\n' + fontLicense + '\n' + threeLicense + '\n*/\n' + faces.join('\n'))
   .replace('/* MEDIA_CONFIG */', () => config)
   .replace('/* APP_BUNDLE */', () => script);
 await writeFile('dist/index.html',html);
