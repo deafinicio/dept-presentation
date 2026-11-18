@@ -98,55 +98,113 @@ const slides = [
  </aside>` },
 ];
 
-const stage = $('stage'), timeline=$('timeline'), dialog=$('photo-dialog');
-const pathIndex = () => slides.findIndex(slide=>location.hash.slice(1)===slide.id);
-let current=Math.max(0,pathIndex()), opener, gallery, overview=false;
+const stage=$('stage'), details=$('details'), timeline=$('timeline'), dialog=$('photo-dialog'), deck=$('deck');
+const steps=slides.flatMap((slide,index)=>[
+ {chapter:index,id:slide.id,kind:'stand'},
+ ...(slide.details??[slide.draw]).map((draw,n)=>({
+  chapter:index,id:slide.id+'-opys'+(n?'-'+(n+1):''),kind:'description',draw,
+ })),
+]);
+const firstStand=chapter=>steps.findIndex(step=>step.chapter===chapter);
+const readHash=()=>Math.max(0,steps.findIndex(step=>location.hash.slice(1)===step.id));
+const photosAt=[['overview'],[],['play'],['prop'],['cover','page'],[],[]];
 const two = n => String(n).padStart(2,'0');
+let cursor=readHash(), gallery, opener, overview=false, generation=0;
+let cameraTarget={chapter:0,mode:'overview'};
+const stepNow=()=>steps[cursor];
 timeline.innerHTML=slides.map(({short},i)=>`<button class="nav-item" type="button" data-go="${i}"><span aria-hidden="true">${two(i+1)}</span>${short}</button>`).join('');
-const mediaForSlide=[['overview'],[],['play'],['prop'],['cover','page'],[],[]];
-function syncGallery(instant=false) {
- const view=$('overview');
- view.setAttribute('aria-pressed',String(overview));
- view.textContent=overview?'Повернутися до розділу':'Загальний план';
- $('space-label').textContent=overview?'Загальний план':slides[current].short;
- $('space-fallback-title').textContent=slides[current].short;
- $('gallery-photos').innerHTML=mediaForSlide[current]
+
+function setPhase(phase){
+ deck.dataset.phase=phase;
+ const reading=phase==='description';
+ details.hidden=!reading;
+ $('space').inert=reading;
+}
+function updatePoster(){
+ if(details.hidden)return;
+ const {chapter}=stepNow();
+ const poster=$('description-poster');
+ const drawn=!!gallery;
+ poster.hidden=!drawn;
+ $('description-fallback').hidden=drawn;
+ $('description-fallback').textContent=slides[chapter].short;
+ if(drawn)gallery.drawPoster(chapter,poster);
+}
+function refreshControls(changeHash=false){
+ const step=stepNow(), chapter=step.chapter;
+ for(const [index,button] of [...timeline.children].entries()){
+  if(index===chapter)button.setAttribute('aria-current','step');
+  else button.removeAttribute('aria-current');
+ }
+ $('prev').disabled=cursor===0;
+ $('next').disabled=cursor===steps.length-1;
+ $('open-step').hidden=overview||step.kind!=='stand';
+ $('counter').textContent=`${two(cursor+1)} / ${two(steps.length)} · ${overview?'Загальний план':step.kind==='stand'?'Стенд':'Опис'}`;
+ $('space-label').textContent=overview?'Загальний план':slides[chapter].short;
+ $('space-fallback-title').textContent=slides[chapter].short;
+ $('overview').setAttribute('aria-pressed',String(overview));
+ $('overview').lastElementChild.textContent=overview?'До розділу':'Загальний план';
+ $('overview').setAttribute('aria-label',overview?'Повернутися до розділу':'Загальний план');
+ if(changeHash){
+  try{history.replaceState(null,'','#'+step.id);}
+  catch{/* The local HTML still works if history is restricted. */}
+ }
+}
+function showDescription(focus){
+ const {chapter,draw}=stepNow();
+ stage.innerHTML=`<article class="slide ${slides[chapter].layout}" aria-labelledby="slide-title">${draw()}</article>`;
+ $('gallery-photos').innerHTML=photosAt[chapter]
    .filter(key=>config.images[key])
    .map(key=>`<button type="button" class="space-button" data-open-photo="${key}">${media[key][0]} ↗</button>`)
    .join('');
- gallery?.move(current,overview,gameIndex,instant);
+ setPhase('description');
+ details.scrollTop=0;
+ updatePoster();
+ if(focus)$('slide-title').focus({preventScroll:true});
 }
-function render(focus=false, updateAddress=false) {
- const slide = slides[current];
- stage.innerHTML=`<article class="slide ${slide.layout}" aria-labelledby="slide-title">${slide.draw()}</article>`;
- for(const [i,button] of [...timeline.children].entries()){
-  if(i===current)button.setAttribute('aria-current','step');
-  else button.removeAttribute('aria-current');
- }
- $('prev').disabled=current===0;
- $('next').disabled=current===slides.length-1;
- $('counter').textContent=`${two(current+1)} / ${two(slides.length)} · ${slide.short}`;
- if(updateAddress){
-  try { history.replaceState(null,'','#'+slide.id); }
-  catch { /* Navigation remains available when opened as a local file. */ }
- }
- syncGallery();
- if(focus){ $('slide-title').focus({preventScroll:true});window.scrollTo(0,0); }
+function fly(chapter,mode,options){
+ cameraTarget={chapter,mode};
+ return gallery?.move(chapter,mode,options)??Promise.resolve(true);
 }
-function navigate(index,{updateAddress=true,focus=true}={}) {
- if(index<0||index>=slides.length)return;
- if(index===current){if(overview){overview=false;syncGallery();}return;}
+async function navigate(target,{changeHash=true,focus=true,force=false,gameStep,instant=false}={}){
+ if(target<0||target>=steps.length||(!force&&target===cursor&&!overview))return;
+ const source=stepNow(),from=cameraTarget,ticket=++generation;
+ const next=steps[target];
+ const alreadyReading=deck.dataset.phase==='description';
+ const sameChapter=source.chapter===next.chapter;
+ if(!sameChapter)gameIndex=0;
+ if(next.chapter===3&&Number.isInteger(gameStep))gameIndex=gameStep;
+ cursor=target;
  overview=false;
- current=index;
- gameIndex=0;
- render(focus,updateAddress);
+ refreshControls(changeHash);
+ gallery?.setGame(gameIndex);
+ if(!force&&sameChapter&&alreadyReading&&next.kind==='description'){
+  showDescription(focus);
+  return;
+ }
+ setPhase('stand');
+ const stillCurrent=()=>ticket===generation;
+ if(from.mode==='inside'&&from.chapter!==next.chapter){
+  if(!await fly(from.chapter,'stand',{instant})||!stillCurrent())return;
+ }
+ if(next.kind==='stand'){
+  await fly(next.chapter,'stand',{instant});
+  return;
+ }
+ if(from.chapter!==next.chapter||from.mode==='overview'){
+  if(!await fly(next.chapter,'stand',{instant})||!stillCurrent())return;
+ }
+ setPhase('entering');
+ if(await fly(next.chapter,'inside',{instant})&&stillCurrent())showDescription(focus);
 }
 function pickGame(index){
  if(!game[index])return;
  gameIndex=index;
  for(const b of stage.querySelectorAll('[data-game]'))b.setAttribute('aria-pressed',String(Number(b.dataset.game)===gameIndex));
- $('game-prompt').innerHTML=gamePrompt();
- gallery?.move(current,overview,gameIndex);
+ const prompt=$('game-prompt');
+ if(prompt)prompt.innerHTML=gamePrompt();
+ gallery?.setGame(gameIndex);
+ updatePoster();
 }
 const draft=`Добрий день! Хотіли б погодити зустріч з інформування про мінну небезпеку.
 
@@ -163,7 +221,7 @@ async function copyRequest(){
 }
 document.addEventListener('click', e=>{
  const go=e.target.closest('[data-go]');
- if(go){navigate(Number(go.dataset.go));return;}
+ if(go){navigate(firstStand(Number(go.dataset.go)));return;}
  const choice=e.target.closest('[data-game]');
  if(choice){pickGame(Number(choice.dataset.game));return;}
  const trigger=e.target.closest('[data-open-photo]');
@@ -178,11 +236,19 @@ document.addEventListener('click', e=>{
  if(e.target.closest('#copy-request'))copyRequest();
 });
 $('photo-close').onclick=()=>dialog.close();
-$('overview').onclick=()=>{overview=!overview;syncGallery();};
+$('overview').onclick=()=>{
+ if(overview){navigate(cursor,{force:true,changeHash:false,focus:false});return;}
+ ++generation;
+ overview=true;
+ setPhase('stand');
+ refreshControls();
+ fly(stepNow().chapter,'overview');
+};
 dialog.addEventListener('close',()=>opener?.focus());
 $('identity').onclick=e=>{e.preventDefault();navigate(0);};
-$('prev').onclick=()=>navigate(current-1);
-$('next').onclick=()=>navigate(current+1);
+$('prev').onclick=()=>navigate(cursor-1);
+$('next').onclick=()=>navigate(cursor+1);
+$('open-step').onclick=()=>navigate(cursor+1);
 $('full').onclick=async()=>{
  try {
   if(document.fullscreenElement)await document.exitFullscreen();
@@ -199,20 +265,21 @@ document.addEventListener('keydown', e=>{
  if(dialog.open||e.altKey||e.ctrlKey||e.metaKey||e.repeat||e.target.closest('textarea,input,select,[contenteditable]'))return;
  const forward=['ArrowRight','ArrowDown','PageDown'].includes(e.key);
  const back=['ArrowLeft','ArrowUp','PageUp'].includes(e.key);
- if(forward||back){e.preventDefault();navigate(current+(forward?1:-1));}
- if(e.key==='Home'||e.key==='End'){e.preventDefault();navigate(e.key==='Home'?0:slides.length-1);}
+ if(forward||back){e.preventDefault();navigate(cursor+(forward?1:-1));}
+ if(e.key==='Home'||e.key==='End'){e.preventDefault();navigate(e.key==='Home'?0:steps.length-1);}
 });
-window.addEventListener('hashchange',()=>navigate(Math.max(0,pathIndex()),{updateAddress:false}));
-render();
-
-async function startGallery() {
+window.addEventListener('hashchange',()=>navigate(readHash(),{changeHash:false}));
+refreshControls();
+async function startGallery(){
  try { await document.fonts?.load('720 28px Montserrat','Ігрова сесія № ABC'); }
- catch { /* A system font is available for the gallery. */ }
- gallery=createGallery($('space'),config.images,(index,step)=>{
-  navigate(index,{focus:false});
-  if(index===3&&Number.isInteger(step))pickGame(step);
- });
- if(gallery)syncGallery(current!==0);
- else $('overview').hidden=true;
+ catch { /* The gallery can also draw with a system font. */ }
+ gallery=createGallery($('space'),config.images,(chapter,gameStep)=>{
+  const stand=firstStand(chapter);
+  const open=chapter===stepNow().chapter&&!overview&&stepNow().kind==='stand';
+  navigate(open||Number.isInteger(gameStep)?stand+1:stand,{focus:false,gameStep});
+ },updatePoster);
+ if(!gallery)$('overview').hidden=true;
+ cameraTarget={chapter:0,mode:'overview'};
+ navigate(cursor,{force:true,changeHash:false,focus:false,instant:cursor!==0});
 }
 startGallery();

@@ -47,7 +47,7 @@ function canvasTexture(w,h){
  return {ctx,texture,width:w,height:h};
 }
 
-export function createGallery(host, sources, select){
+export function createGallery(host, sources, select, refreshPoster){
  let renderer;
  try{
   const canvas=document.createElement('canvas');
@@ -170,20 +170,21 @@ export function createGallery(host, sources, select){
  }
  for(const [key,src] of Object.entries(sources)){
   const img=new Image();
-  img.onload=()=>{loaded[key]=img;exhibits.forEach((e,i)=>{if(e.photo===key)redraw(i);});if(key==='cover'||key==='page')redrawBook();wake();};
+  img.onload=()=>{loaded[key]=img;exhibits.forEach((e,i)=>{if(e.photo===key)redraw(i);});if(key==='cover'||key==='page')redrawBook();refreshPoster?.();wake();};
   img.src=src;
  }
  const motion=matchMedia('(prefers-reduced-motion: reduce)');
- let index=0, whole=true, game=0,aspect=host.clientWidth/host.clientHeight||1.25;
+ let index=0, mode='overview', game=0, aspect=host.clientWidth/host.clientHeight||1.25;
  let token=0, started=0, animation=null;
  const aim=v(0,0,0),look=v(0,0,0), offset=v(0,0,0);
  let height=.9;
  const fixedFront=v(0,0,1);
  function shot(){
-  if(whole)return {aim:v(0,.62,.20),yaw:.13,radius:8.6,lift:4.25,half:Math.max(1.48,4.42/aspect)};
-  const s=stations[index];
-  const yaw=s.yaw+(index%2===0?.23:-.20);
-  return {aim:v(s.x,.813,s.z),yaw,radius:3.55,lift:index===3?1.28:1.38,half:index===0?.96:.85};
+  const station=stations[index];
+  if(mode==='overview')return {aim:v(0,.62,.2),yaw:.13,radius:8.6,lift:4.25,half:Math.max(1.18,4.55/aspect)};
+  if(mode==='inside')return {aim:v(station.x,.90,station.z+.04),yaw:station.yaw,radius:.58,lift:.09,half:.28};
+  const yaw=station.yaw+(index%2===0?.19:-.17);
+  return {aim:v(station.x,index===3?.78:.84,station.z),yaw,radius:3.3,lift:index===3?1.04:1.18,half:.73};
  }
  const initial=shot();
  let yaw=initial.yaw,radius=initial.radius,lift=initial.lift;
@@ -212,6 +213,7 @@ export function createGallery(host, sources, select){
  function wake(){if(!token)token=requestAnimationFrame(frame);}
  function frame(now){
   token=0;
+  let finished;
   if(animation){
    if(!started)started=now;
    const p=motion.matches?1:Math.min(1,(now-started)/animation.duration);
@@ -223,14 +225,15 @@ export function createGallery(host, sources, select){
    radius=T.MathUtils.lerp(from.radius,to.radius,ease);
    height=T.MathUtils.lerp(from.half,to.half,ease)+Math.sin(Math.PI*ease)*arch*.27;
    lift=T.MathUtils.lerp(from.lift,to.lift,ease)+Math.sin(Math.PI*ease)*arch*.55;
-   if(p>=1){animation=null;host.dataset.moving='false';}
+   if(p>=1){finished=animation.done;animation=null;}
   }
   redrawTabs();
-  const opened=index===4&&!whole;
+  const opened=index===4&&mode!=='overview';
   for(const {side,hinge} of bookPanels)hinge.rotation.y+=(-side*(opened?.19:.68)-hinge.rotation.y)*(motion.matches?1:.20);
   updateCamera();
   renderer.render(scene,camera);
   host.classList.add('gallery-ready');
+  if(finished){host.dataset.moving='false';finished(true);}
   const unsettled=gameTabs.some(({g},i)=>Math.abs(g.position.z-(game===i?.22:.12))>.002);
   const pageMoving=bookPanels.some(({side,hinge})=>Math.abs(hinge.rotation.y+side*(opened?.19:.68))>.004);
   if(animation||unsettled||pageMoving)wake();
@@ -240,7 +243,7 @@ export function createGallery(host, sources, select){
   if(!w||!h)return;
   aspect=w/h;
   renderer.setSize(w,h,false);
-  if(whole&&!animation)height=shot().half;
+  if(mode==='overview'&&!animation)height=shot().half;
   wake();
  }
  new ResizeObserver(resize).observe(host);
@@ -260,20 +263,45 @@ export function createGallery(host, sources, select){
   const target=hit(e);
   if(target)select(target.station,target.game);
  });
+ function drawPoster(next,canvas){
+  const source=surfaces[next]?.ctx.canvas;
+  if(!source)return;
+  canvas.width=source.width;canvas.height=source.height;
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(source,0,0);
+  if(next===4){
+   bookPanels.forEach(({print},i)=>ctx.drawImage(print.ctx.canvas,75+i*200,126,195,274));
+  } else if(next===3){
+   gameTabs.forEach(({a},i)=>ctx.drawImage(a.ctx.canvas,30+i*166,414,153,28));
+  }
+ }
  return {
-  move(next,overview,step,instant=false){
-   const dist=Math.abs(next-index),changed=next!==index||overview!==whole;
-   index=next;whole=overview;game=step;
-   if(changed||instant){
-    const to=shot();
-    if(instant||motion.matches){animation=null;aim.copy(to.aim);yaw=to.yaw;radius=to.radius;lift=to.lift;height=to.half;host.dataset.moving='false';}
-    else{
-     started=0;
-     animation={from:{aim:aim.clone(),yaw,radius,lift,half:height},to,arch:whole?.6:Math.min(dist*.57,1.9),swing:(to.aim.x>=aim.x?1:-1)*.25,duration:Math.min(1180,780+dist*65)};
-     host.dataset.moving='true';
-    }
+  drawPoster,
+  setGame(step){game=step;redrawTabs();wake();},
+  move(next,view,{instant=false}={}){
+   const distance=Math.abs(next-index), sourceMode=mode, changed=next!==index||view!==mode;
+   index=next;mode=view;
+   if(!changed&&!instant){wake();return animation?.promise??Promise.resolve(true);}
+   if(animation){animation.done(false);animation=null;}
+   const to=shot();
+   if(instant||motion.matches){
+    aim.copy(to.aim);yaw=to.yaw;radius=to.radius;lift=to.lift;height=to.half;
+    host.dataset.moving='false';wake();return Promise.resolve(true);
    }
+   started=0;
+   const zoom=view==='inside'||sourceMode==='inside';
+   const promise=new Promise(done=>{
+    animation={
+     from:{aim:aim.clone(),yaw,radius,lift,half:height},to,
+     arch:zoom?0:(view==='overview'?.65:Math.min(distance*.57,1.9)),
+     swing:(to.aim.x>=aim.x?1:-1)*(zoom?.055:.23),
+     duration:zoom?(view==='inside'?575:410):Math.min(1120,690+distance*63),done,
+    };
+   });
+   animation.promise=promise;
+   host.dataset.moving='true';
    wake();
+   return promise;
   }
  };
 }
