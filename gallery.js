@@ -69,19 +69,26 @@ export function createGallery(host){
   cube(g,.52,.07,.026,red,-.84,-.12,1.31);
   make(g);return g;
  });
- let active=0,mode='intro',width=1,height=1,animation,frameId=0;
- const state={x:0,y:.4,z:0,yaw:.78,pitch:.57,size:6,shift:0,vertical:0};
+ const exhibitPositions=stations.map(g=>g.position.clone());
+ const overviewPositions=[[-2.85,2.25],[-2.5,-2.35],[2.55,-2.2],[2.85,2.3]];
+ let active=0,mode='overview',width=1,height=1,animation,frameId=0;
+ const state={x:0,y:.4,z:0,yaw:.78,pitch:.57,size:6,shift:0,vertical:0,grouping:1};
  function target(){
-  const small=width<760,g=stations[active],inside=mode==='inside',overview=mode==='overview';
-  if(overview)return {x:0,y:.15,z:.5,yaw:.13,pitch:.55,size:Math.max(5.6,14.2*height/width),shift:0,vertical:0};
-  return {x:g.position.x,y:inside?.55:.40,z:g.position.z,yaw:[.54,-.45,.58,.48][active],pitch:[.64,.30,.71,.32][active],size:inside?.36:(small?Math.max(2.1,2.20*height/width):Math.max(2.05,3.8*height/width)),shift:inside?0:(small?0:.225),vertical:inside?0:(small?-.15:-.015)};
+  const small=width<760,position=exhibitPositions[active],inside=mode==='inside',overview=mode==='overview';
+  if(overview)return {x:0,y:.50,z:0,yaw:.15,pitch:.63,size:Math.max(4.8,5.8*height/width),shift:0,vertical:-.16,grouping:1};
+  return {x:position.x,y:inside?.55:.40,z:position.z,grouping:0,yaw:[.54,-.45,.58,.48][active],pitch:[.64,.30,.71,.32][active],size:inside?.36:(small?Math.max(2.1,2.20*height/width):Math.max(2.05,3.8*height/width)),shift:inside?0:(small?0:.225),vertical:inside?0:(small?-.15:-.015)};
  }
  function paint(){
   const aspect=width/height,s=state.size;camera.left=-s*aspect*(1+2*state.shift);camera.right=s*aspect*(1-2*state.shift);
   camera.top=s*(1-2*state.vertical);camera.bottom=-s*(1+2*state.vertical);camera.updateProjectionMatrix();
   const center=new T.Vector3(state.x,state.y,state.z),r=17;camera.position.set(state.x+r*Math.sin(state.yaw)*Math.cos(state.pitch),state.y+r*Math.sin(state.pitch),state.z+r*Math.cos(state.yaw)*Math.cos(state.pitch));
   camera.lookAt(center);camera.updateMatrixWorld();
-  for(const g of stations)g.visible=mode==='overview'||Math.abs(g.position.x-state.x)<s*aspect*2+3.2;
+  stations.forEach((g,i)=>{
+   const origin=exhibitPositions[i],[x,z]=overviewPositions[i];
+   g.position.x=T.MathUtils.lerp(origin.x,x,state.grouping);
+   g.position.z=T.MathUtils.lerp(origin.z,z,state.grouping);
+   g.visible=state.grouping>0||Math.abs(g.position.x-state.x)<s*aspect*2+3.2;
+  });
   renderer.render(world,camera);
  }
  function frame(t){

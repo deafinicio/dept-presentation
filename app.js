@@ -6,7 +6,7 @@ import report from './report.json';
 const $=id=>document.getElementById(id);
 const config=JSON.parse($('media-config').textContent);
 const mapURL='https://deafinicio.github.io/mine-risk-map/';
-const steps=[];
+const steps=[{id:'pochatok',chapter:0,kind:'panorama'}];
 scenes.forEach((scene,chapter)=>{
  steps.push({id:scene.id,chapter,kind:'stand'});
  scene.pages.forEach(page=>{
@@ -17,6 +17,7 @@ scenes.forEach((scene,chapter)=>{
   }
  });
 });
+steps.push({id:'zavershennia',chapter:scenes.length-1,kind:'panorama'});
 const indexFor=id=>steps.findIndex(step=>step.id===id);
 const fromHash=()=>Math.max(0,indexFor(location.hash.slice(1)));
 const fmt=n=>String(n).padStart(2,'0');
@@ -34,15 +35,19 @@ function phaseTo(value){
  $('space').style.visibility=value==='detail'?'hidden':'visible';
 }
 function controls(hash){
- const {chapter,id}=current(),scene=scenes[chapter];
- [...$('timeline').children].forEach((b,i)=>{if(i===chapter&&!overview)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});
+ const {chapter,id,kind}=current(),scene=scenes[chapter];
+ const panorama=kind==='panorama',wide=panorama||overview,ending=panorama&&cursor===steps.length-1;
+ $('deck').dataset.wide=String(wide);
+ [...$('timeline').children].forEach((b,i)=>{if(i===chapter&&!wide)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});
  $('prev').disabled=cursor===0&&!overview;$('next').disabled=cursor===steps.length-1&&!overview;
  $('counter').textContent=fmt(cursor+1)+' / '+fmt(steps.length);
  $('progress').style.setProperty('--progress',100*(cursor+1)/steps.length+'%');
- $('stand-label').textContent=overview?'Огляд презентації':'Стенд '+fmt(chapter+1)+' / 04';
- $('stand-title').textContent=overview?'Чотири стенди':scene.title;
- $('stand-intro').textContent=overview?'Оберіть розділ унизу або поверніться до поточного кроку.':scene.intro;
- $('enter').textContent=overview?'До поточного кроку':'Увійти до стенда';
+ $('stand-label').textContent=wide?'Харківщина · Закладам освіти':'Стенд '+fmt(chapter+1)+' / 04';
+ $('stand-title').textContent=wide?(ending?'Дякуємо за увагу':overview?'Чотири стенди':'Безпека починається зі знань'):scene.title;
+ $('stand-intro').textContent=wide?(ending?'Запрошуйте команду до вашого закладу.':overview?'Оберіть стенд або поверніться до показу.':'Як наш відділ може допомогти вашому закладу освіти.'):scene.intro;
+ $('enter').hidden=ending;
+ $('enter').textContent=overview?'До поточного кроку':panorama?'До першого стенда':'Увійти до стенда';
+ $('overview').hidden=panorama;
  $('overview').textContent=overview?'До показу':'Усі стенди';$('overview').setAttribute('aria-pressed',String(overview));
  if(hash)history.replaceState(null,'','#'+id);
 }
@@ -69,7 +74,7 @@ function regionalMap(){
 }
 function mediaMarkup(step){
  const isMap=step.kind==='map';
- return `<section class="fullview"><div class="view-bar"><h2>${isMap?'Мапа проведених сесій':photoNames[step.key]}</h2><div class="map-controls">
+ return `<section class="fullview"><div class="view-bar"><div class="view-title"><img class="org-logo" src="media/urcs-logo.png" alt="Товариство Червоного Хреста України"><h2>${isMap?'Мапа проведених сесій':photoNames[step.key]}</h2></div><div class="map-controls">
  ${isMap&&onlineMapAvailable()?`<button id="toggle-map">${mapMode==='live'?'Зведення за локаціями':'Інтерактивна мапа'}</button>`:''}
  ${isMap&&!onlineMapAvailable()?`<a class="photo-link" href="${mapURL}" target="_blank" rel="noopener">Мапа онлайн ↗</a>`:''}
  <button class="photo-link" id="close-media">Закрити й продовжити</button></div></div>
@@ -95,11 +100,12 @@ async function go(target,{hash=true,force=false,instant=false}={}){
  if(target<0||target>=steps.length||(target===cursor&&!force&&!overview))return;
  const id=++ticket,next=steps[target],oldChapter=cameraChapter,oldMode=cameraMode;
  const wasReading=phase==='detail'&&!overview;cursor=target;overview=false;controls(hash);
- if(wasReading&&oldChapter===next.chapter&&next.kind!=='stand'){showDetail();return;}
+ if(wasReading&&oldChapter===next.chapter&&['page','map','photo'].includes(next.kind)){showDetail();return;}
  details.replaceChildren();phaseTo('stand');
- if(oldMode==='inside'&&oldChapter!==next.chapter){
+ if(oldMode==='inside'&&(oldChapter!==next.chapter||next.kind==='panorama')){
   if(!await fly(oldChapter,'stand',instant)||ticket!==id)return;
  }
+ if(next.kind==='panorama'){await fly(next.chapter,'overview',instant);return;}
  if(next.kind==='stand'){await fly(next.chapter,'stand',instant);return;}
  if(oldChapter!==next.chapter||oldMode==='overview'){
   if(!await fly(next.chapter,'stand',instant)||ticket!==id)return;
@@ -135,5 +141,4 @@ $('full').hidden=!document.fullscreenEnabled;
 $('full').onclick=()=>{(document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()).catch(()=>{});};
 document.addEventListener('fullscreenchange',()=>{const label=document.fullscreenElement?'Згорнути':'На весь екран';$('full').lastElementChild.textContent=label;$('full').setAttribute('aria-label',label);});
 window.addEventListener('hashchange',()=>go(fromHash(),{hash:false}));
-if(cursor===0)fly(0,'overview',true);
-go(cursor,{hash:false,force:true,instant:cursor!==0});
+go(cursor,{hash:false,force:true,instant:true});
