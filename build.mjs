@@ -22,7 +22,7 @@ const faces = await Promise.all([...fontCSS.matchAll(/@font-face\s*\{[^}]*\}/g)]
   }));
 if (faces.length !== 2) throw new Error('Montserrat Latin and Cyrillic subsets are required.');
 
-const slots = {overview:'session-overview',play:'session-in-play',prop:'game-material',cover:'vartovi-cover',page:'vartovi-page',comic:'educational-comic',games:'board-games',vr:'vr-game',teen:'teen-session',youth:'youth-session',adult:'adult-session'};
+const slots = {overview:'session-overview',play:'session-in-play',prop:'game-material',vartovi:'vartovi-presentation',cover:'vartovi-cover',page:'vartovi-page',comic:'educational-comic',games:'board-games',vr:'vr-game',route:'vr-route',teen:'teen-session',youth:'youth-session',adult:'adult-session'};
 const found = new Set(await readdir('media'));
 const images = {};
 await rm('dist/media',{recursive:true,force:true});
