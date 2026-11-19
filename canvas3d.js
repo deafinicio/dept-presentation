@@ -1,60 +1,57 @@
-import { Vector3, Color, SRGBColorSpace } from 'three';
+import {Vector3,Matrix4,Color,SRGBColorSpace} from 'three';
 
-// Software projection of the same 3D geometry and camera without WebGL2.
+// Orthographic triangle rasterizer for browsers without WebGL2. A depth buffer
+// keeps pins, stacked sheets and interlocking solids correctly occluded.
 export function createCanvasRenderer(){
- const domElement=document.createElement('canvas');
- const ctx=domElement.getContext('2d');
+ const domElement=document.createElement('canvas'),ctx=domElement.getContext('2d');
  if(!ctx)return null;
- const temp=new Vector3(), rgb=new Color(), primitives=new WeakMap();
- let ratio=1;
- const normals=[.78,.88,1.10,.58,.83,.9];
- const color=(material,light=1)=>'#'+rgb.copy(material.color).multiplyScalar(light).getHexString(SRGBColorSpace);
- function primitive(o){
-  if(primitives.has(o))return primitives.get(o);
-  const {type,parameters:p}=o.geometry;
-  let res;
-  if(type==='BoxGeometry'){
-   const x=p.width/2,y=p.height/2,z=p.depth/2;
-   res={vertices:[[-x,-y,-z],[x,-y,-z],[x,y,-z],[-x,y,-z],[-x,-y,z],[x,-y,z],[x,y,z],[-x,y,z]],faces:[[1,2,6,5],[4,7,3,0],[3,7,6,2],[4,0,1,5],[5,6,7,4],[0,3,2,1]],box:true};
-  }else if(type==='PlaneGeometry'){
-   const x=p.width/2,y=p.height/2;
-   res={vertices:[[-x,y,0],[x,y,0],[x,-y,0],[-x,-y,0]],faces:[[0,1,2,3]],box:false};
-  }
-  primitives.set(o,res);return res;
+ let ratio=1,image,pixels,depth;
+ const matrix=new Matrix4(),a=new Vector3(),b=new Vector3(),normal=new Vector3(),light=new Vector3(-.45,.8,.45).normalize(),color=new Color();
+ const cache=new WeakMap();
+ function vertices(geometry){
+  if(cache.has(geometry))return cache.get(geometry);
+  const attr=geometry.attributes.position,idx=geometry.index;
+  const points=Array.from({length:attr.count},(_,i)=>new Vector3().fromBufferAttribute(attr,i));
+  const faces=[];
+  for(let i=0;i<(idx?.count??attr.count);i+=3)faces.push([0,1,2].map(k=>idx?idx.getX(i+k):i+k));
+  const result={points,faces};cache.set(geometry,result);return result;
  }
- return {domElement,shadowMap:{},software:true,capabilities:{getMaxAnisotropy:()=>1},
-  setPixelRatio(value){ratio=value;},
-  setSize(w,h){domElement.width=Math.round(w*ratio);domElement.height=Math.round(h*ratio);},
-  render(scene,camera){
-   const W=domElement.width,H=domElement.height;
-   if(!W||!H)return;
-   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,W,H);
-   scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
-   const polygons=[];
-   scene.traverseVisible(o=>{
-    if(!o.isMesh)return;
-    const geom=primitive(o);if(!geom)return;
-    const vertices=geom.vertices.map(pos=>{temp.set(...pos).applyMatrix4(o.matrixWorld).project(camera);return [(temp.x+1)*W/2,(1-temp.y)*H/2,temp.z];});
-    geom.faces.forEach((face,i)=>{
-     const pts=face.map(j=>vertices[j]);
-     const [a,b,c]=pts;
-     const facing=(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
-     if(geom.box?facing>=0:facing<=0)return;
-     polygons.push({pts,depth:pts.reduce((sum,p)=>sum+p[2],0)/pts.length, tex:!geom.box&&o.material.map?.image,color:color(o.material,geom.box?normals[i]:1)});
-    });
-   });
-   polygons.sort((a,b)=>b.depth-a.depth);
-   for(const {pts,tex,color:fill} of polygons){
-    if(tex){
-     const [a,b,,d]=pts;const tw=tex.width,th=tex.height;
-     ctx.setTransform((b[0]-a[0])/tw,(b[1]-a[1])/tw,(d[0]-a[0])/th,(d[1]-a[1])/th,a[0],a[1]);
-     ctx.drawImage(tex,0,0);
-     ctx.setTransform(1,0,0,1,0,0);
-    }else{
-     ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);
-     ctx.closePath();ctx.fillStyle=fill;ctx.fill();
-    }
+ function triangle(p,q,r,fill){
+  const dx=q.x-p.x,dy=q.y-p.y,ex=r.x-p.x,ey=r.y-p.y,det=dx*ey-dy*ex;
+  if(det>=-.00001)return;
+  const dzx=((q.z-p.z)*ey-(r.z-p.z)*dy)/det,dzy=(dx*(r.z-p.z)-ex*(q.z-p.z))/det;
+  const [lo,mid,hi]=[p,q,r].sort((a,b)=>a.y-b.y),height=hi.y-lo.y;
+  const w=image.width,h=image.height,y1=Math.max(0,Math.ceil(lo.y-.5)),y2=Math.min(h,Math.ceil(hi.y-.5));
+  for(let y=y1;y<y2;y++){
+   const cy=y+.5,u=cy<mid.y?lo:mid,v=cy<mid.y?mid:hi;
+   if(v.y===u.y)continue;
+   const edge1=lo.x+(hi.x-lo.x)*(cy-lo.y)/height,edge2=u.x+(v.x-u.x)*(cy-u.y)/(v.y-u.y);
+   const start=Math.max(0,Math.ceil(Math.min(edge1,edge2)-.5)),end=Math.min(w,Math.ceil(Math.max(edge1,edge2)-.5));
+   let z=p.z+(start+.5-p.x)*dzx+(cy-p.y)*dzy;
+   for(let i=y*w+start,last=y*w+end;i<last;i++,z+=dzx){
+    if(z<depth[i]){depth[i]=z;pixels[i]=fill;}
    }
   }
- };
+ }
+ return {domElement,software:true,setPixelRatio(v){ratio=v;},setSize(w,h){
+  domElement.width=Math.max(1,Math.round(w*ratio));domElement.height=Math.max(1,Math.round(h*ratio));
+  image=ctx.createImageData(domElement.width,domElement.height);pixels=new Uint32Array(image.data.buffer);depth=new Float32Array(pixels.length);
+ },render(scene,camera){
+  if(!image)return;const w=image.width/2,h=image.height/2;
+  pixels.fill(0);depth.fill(Infinity);scene.updateMatrixWorld(true);matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
+  scene.traverseVisible(o=>{
+   if(!o.isMesh)return;
+   const geom=vertices(o.geometry),wp=geom.points.map(p=>p.clone().applyMatrix4(o.matrixWorld)),screen=wp.map(p=>{
+    const s=p.clone().applyMatrix4(matrix);s.x=(1+s.x)*w;s.y=(1-s.y)*h;return s;
+   });
+   for(const [i,j,k] of geom.faces){
+    const p=screen[i],q=screen[j],r=screen[k];
+    if((q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x)>=0)continue;
+    if(Math.max(p.x,q.x,r.x)<0||Math.min(p.x,q.x,r.x)>2*w)continue;
+    a.subVectors(wp[j],wp[i]);b.subVectors(wp[k],wp[i]);normal.crossVectors(a,b).normalize();
+    const rgb=color.copy(o.material.color).multiplyScalar(.77+.27*normal.dot(light)).getHex(SRGBColorSpace);
+    triangle(p,q,r,0xff000000|((rgb&255)<<16)|(rgb&0xff00)|(rgb>>>16));
+   }
+  });ctx.putImageData(image,0,0);
+ }};
 }

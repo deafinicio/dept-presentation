@@ -22,7 +22,7 @@ const faces = await Promise.all([...fontCSS.matchAll(/@font-face\s*\{[^}]*\}/g)]
   }));
 if (faces.length !== 2) throw new Error('Montserrat Latin and Cyrillic subsets are required.');
 
-const slots = {overview:'session-overview',play:'session-in-play',prop:'game-material',cover:'vartovi-cover',page:'vartovi-page'};
+const slots = {overview:'session-overview',play:'session-in-play',prop:'game-material',cover:'vartovi-cover',page:'vartovi-page',comic:'educational-comic',games:'board-games',vr:'vr-game',teen:'teen-session',youth:'youth-session',adult:'adult-session'};
 const found = new Set(await readdir('media'));
 const images = {};
 await rm('dist/media',{recursive:true,force:true});
@@ -41,6 +41,7 @@ const config=JSON.stringify({images,contact}).replace(/</g,'\\u003c');
 const script = output.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
 const html = template
   .replace('/* EMBEDDED_FONTS */', () => '/*\n' + fontLicense + '\n' + threeLicense + '\n*/\n' + faces.join('\n'))
+  .replace('/* DECK_STYLES */', await readFile('style.css','utf8'))
   .replace('/* MEDIA_CONFIG */', () => config)
   .replace('/* APP_BUNDLE */', () => script);
 await writeFile('dist/index.html',html);
